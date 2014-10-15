@@ -38,8 +38,28 @@
 #include "ns3/olsr-helper.h"
 #include "ns3/aodv-helper.h"
 #include "src/core/model/string.h"
+// Needed for mesh protocol stack
+#include "ns3/mesh-helper.h"
+// Needed for setting the mobility
+#include "myapp.h"
 
 using namespace ns3;
+
+static void
+SetPosition (Ptr<Node> node, double x, double y)
+{
+  Ptr<MobilityModel> mobility = node->GetObject<MobilityModel> ();
+  Vector pos = mobility->GetPosition();
+  pos.x = x;
+  pos.y = y;
+  mobility->SetPosition(pos);
+}
+//
+//void
+//ReceivePacket(Ptr<const Packet> p, const Address & addr)
+//{
+//	std::cout << Simulator::Now ().GetSeconds () << "\t" << p->GetSize() <<"\n";
+//}
 
 int
 main (int argc, char *argv[])
@@ -65,7 +85,16 @@ main (int argc, char *argv[])
   nc_mesh.Add (nc_all.Get (1));
   nc_mesh.Add (nc_all.Get (2));
   nc_mesh.Add (nc_all.Get (3));
-
+  
+#if 0 // Initialization for mesh protocol stack
+  std::string m_stack = "ns3::Dot11sStack";
+  std::string m_root = "ff:ff:ff:ff:ff:ff";
+  bool m_chan = true;
+  double m_randomStart = 0.1;
+  uint32_t m_nIfaces = 1;
+  MeshHelper meshHelper;
+#endif
+  
   /*  PointToPointHelper p2ph; // Set p2p link between node 0 and 1 
     p2ph.SetDeviceAttribute ("DataRate", StringValue ("1Mbps"));
     //p2ph.SetChannelAttribute ("DataRate", StringValue ("1000000"));
@@ -111,32 +140,75 @@ main (int argc, char *argv[])
     wifiPhy.Set ("TxGain", DoubleValue(0) );
     wifiPhy.Set ("RxGain", DoubleValue (0) );*/
   NetDeviceContainer meshDevice = wifiMesh.Install (wifiMeshPhy, wifiMesMac, nc_mesh);
+  
+#if 0 // MeshHelper
+  meshHelper = MeshHelper::Default ();
+  if (!Mac48Address (m_root.c_str ()).IsBroadcast ())
+    {
+      meshHelper.SetStackInstaller (m_stack, "Root", Mac48AddressValue (Mac48Address (m_root.c_str ())));
+    }
+  else
+    {
+      //If root is not set, we do not use "Root" attribute, because it
+      //is specified only for 11s
+      meshHelper.SetStackInstaller (m_stack);
+    }
+  if (m_chan)
+    {
+      meshHelper.SetSpreadInterfaceChannels (MeshHelper::SPREAD_CHANNELS);
+    }
+  else
+    {
+      meshHelper.SetSpreadInterfaceChannels (MeshHelper::ZERO_CHANNEL);
+    }
+  meshHelper.SetMacType ("RandomStart", TimeValue (Seconds (m_randomStart)));
+  // Set number of interfaces - default is single-interface meshHelper point
+  meshHelper.SetNumberOfInterfaces (m_nIfaces);
+  // Install protocols and return container if MeshPointDevices
+  meshDevice = meshHelper.Install (wifiMeshPhy, nc_mesh);
+#endif
 
-  // Set mobility for the internet node and access points
-  MobilityHelper constantMobility; //Position nodes
-  constantMobility.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                         "MinX", DoubleValue (0),
-                                         "MinY", DoubleValue (0),
-                                         "DeltaX", DoubleValue (75),
-                                         "DeltaY", DoubleValue (75),
-                                         "GridWidth", UintegerValue (5),
-                                         "LayoutType", StringValue ("RowFirst"));
-  constantMobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  constantMobility.Install (nc_p2p);
-
-  // Set mobility for mesh node
-  MobilityHelper randomMobility; //Position nodes
-  randomMobility.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                       "MinX", DoubleValue (0),
-                                       "MinY", DoubleValue (0),
-                                       "DeltaX", DoubleValue (75),
-                                       "DeltaY", DoubleValue (75),
-                                       "GridWidth", UintegerValue (5),
-                                       "LayoutType", StringValue ("RowFirst"));
-  randomMobility.SetMobilityModel ("ns3::RandomWalk2dMobilityModel", "Bounds", RectangleValue (Rectangle (-500, 500, -500, 500)),
-                                   "Speed", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
-                                   "Mode", StringValue("Time"));
-  randomMobility.Install (nc_mesh.Get (2));
+//  // Set mobility for the internet node and access points
+//  MobilityHelper constantMobility; //Position nodes
+//  constantMobility.SetPositionAllocator ("ns3::GridPositionAllocator",
+//                                         "MinX", DoubleValue (0),
+//                                         "MinY", DoubleValue (0),
+//                                         "DeltaX", DoubleValue (75),
+//                                         "DeltaY", DoubleValue (75),
+//                                         "GridWidth", UintegerValue (5),
+//                                         "LayoutType", StringValue ("RowFirst"));
+//  constantMobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+//  constantMobility.Install (nc_p2p);
+//
+//  // Set mobility for mesh node
+//  MobilityHelper randomMobility; //Position nodes
+//  randomMobility.SetPositionAllocator ("ns3::GridPositionAllocator",
+//                                       "MinX", DoubleValue (0),
+//                                       "MinY", DoubleValue (0),
+//                                       "DeltaX", DoubleValue (75),
+//                                       "DeltaY", DoubleValue (75),
+//                                       "GridWidth", UintegerValue (5),
+//                                       "LayoutType", StringValue ("RowFirst"));
+//  randomMobility.SetMobilityModel ("ns3::RandomWalk2dMobilityModel", "Bounds", RectangleValue (Rectangle (-500, 500, -500, 500)),
+//                                   "Speed", StringValue ("ns3::ConstantRandomVariable[Constant=1.0]"),
+//                                   "Mode", StringValue("Time"));
+//  randomMobility.Install (nc_mesh.Get (2));
+  
+  MobilityHelper mobility;
+  Ptr<ListPositionAllocator> positionAlloc = CreateObject <ListPositionAllocator>();
+  positionAlloc ->Add(Vector(150, 37, 0)); // node0
+  positionAlloc ->Add(Vector(75, 0, 0)); // node1
+  positionAlloc ->Add(Vector(75, 75, 0)); // node2
+  positionAlloc ->Add(Vector(0, 0, 0)); // node3
+  
+  mobility.SetPositionAllocator(positionAlloc);
+  mobility.SetMobilityModel("ns3::ConstantPositionMobilityModel");
+  mobility.Install(nc_all);
+  
+  // Set new position for node 3 (client)
+  Simulator::Schedule (Seconds (9.0), &SetPosition, nc_all.Get (3), 0.0, 75.0);
+  
+  
 
   InternetStackHelper internetStack; //Config IP, addresses and routing protocol
   OlsrHelper routingProtocol;
@@ -166,7 +238,7 @@ main (int argc, char *argv[])
   serverApps.Start (Seconds (7.0));
   serverApps.Stop (Seconds (50.0));
   UdpEchoClientHelper echoClient (p2pInterface.GetAddress (0), 9);
-  echoClient.SetAttribute ("MaxPackets", UintegerValue (5));
+  echoClient.SetAttribute ("MaxPackets", UintegerValue (25));
   echoClient.SetAttribute ("Interval", TimeValue (Seconds (1.0)));
   echoClient.SetAttribute ("PacketSize", UintegerValue (1024));
 
@@ -177,11 +249,11 @@ main (int argc, char *argv[])
   Simulator::Stop (Seconds (50));
   AnimationInterface animation ("mesh-handover.xml");
   
-  // Set position for the nodes
-  animation.SetConstantPosition (nc_all.Get (0), 150.0, 37.0);          // n0 -> internet node
-  animation.SetConstantPosition (nc_all.Get (1), 75.0, 0.0);            // n1 -> AP
-  animation.SetConstantPosition (nc_all.Get (2), 75.0, 75.0);           // n2 -> AP
-  animation.SetConstantPosition (nc_all.Get (3), 0.0, 0.0);             // n3 -> Mesh Node
+//  // Set position for the nodes
+//  animation.SetConstantPosition (nc_all.Get (0), 150.0, 37.0);          // n0 -> internet node
+//  animation.SetConstantPosition (nc_all.Get (1), 75.0, 0.0);            // n1 -> AP
+//  animation.SetConstantPosition (nc_all.Get (2), 75.0, 75.0);           // n2 -> AP
+//  animation.SetConstantPosition (nc_all.Get (3), 0.0, 0.0);             // n3 -> Mesh Node
   
   animation.EnablePacketMetadata (true);
   animation.EnableIpv4RouteTracking ("mesh-handover-route.xml", Seconds (0), Seconds (10), Seconds (0.25));
