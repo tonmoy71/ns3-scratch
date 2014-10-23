@@ -10,6 +10,7 @@
 #include "src/point-to-point/helper/point-to-point-helper.h"
 #include "src/csma/helper/csma-helper.h"
 #include "ns3/olsr-helper.h"
+#include "ns3/ipv4-global-routing-helper.h"
 
 #include <iostream>
 #include <sstream>
@@ -292,14 +293,15 @@ MeshTest::CreateNodes ()
                                  "LayoutType", StringValue ("RowFirst"));
   mobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
   mobility.Install (nc_sta1);
-  mobility.Install (nc_sta2);
   mobility.Install (nc_ap1);
-  mobility.Install (nc_ap2);
   mobility.Install (nc_mr1);
-  mobility.Install (nc_mr2);
   mobility.Install (nc_gw1);
-  mobility.Install (nc_gw2);
   mobility.Install (nc_bb1);
+  mobility.Install (nc_sta2);
+  mobility.Install (nc_ap2);
+  mobility.Install (nc_mr2);
+  mobility.Install (nc_gw2);
+  
 
 
 }
@@ -310,7 +312,8 @@ MeshTest::InstallInternetStack ()
 
   InternetStackHelper internetStackHelper;
   OlsrHelper routingProtocol;
-  internetStackHelper.SetRoutingHelper (routingProtocol);
+  internetStackHelper.SetRoutingHelper (routingProtocol);  
+  
   internetStackHelper.Install (nc_sta1);
   internetStackHelper.Install (nc_sta2);
   internetStackHelper.Install (nc_ap1);
@@ -356,18 +359,20 @@ MeshTest::InstallApplication ()
 {
   // Server is set on STA2 in network 2 (right)
   UdpEchoServerHelper echoServer (9);
-  ApplicationContainer serverApps = echoServer.Install (nc_sta2.Get (0));
+  ApplicationContainer serverApps = echoServer.Install (nc_mr1.Get (0));
   serverApps.Start (Seconds (0.0));
   serverApps.Stop (Seconds (m_totalTime));
 
   // Client is set on STA1 in network 1 (left)
-  UdpEchoClientHelper echoClient (if_wifi_sta1Ap1.GetAddress (0), 9);
+  UdpEchoClientHelper echoClient (if_csma_ap1Mr1.GetAddress (1), 9);
   echoClient.SetAttribute ("MaxPackets", UintegerValue ((uint32_t) (m_totalTime * (1 / m_packetInterval))));
   echoClient.SetAttribute ("Interval", TimeValue (Seconds (m_packetInterval)));
   echoClient.SetAttribute ("PacketSize", UintegerValue (m_packetSize));
-  ApplicationContainer clientApps = echoClient.Install (nc_sta1.Get (0));
+  ApplicationContainer clientApps = echoClient.Install (nc_ap1.Get (0));
   clientApps.Start (Seconds (0.0));
   clientApps.Stop (Seconds (m_totalTime));
+  
+  //Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
 }
 
 int
