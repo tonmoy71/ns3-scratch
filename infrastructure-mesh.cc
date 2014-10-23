@@ -1,3 +1,12 @@
+/* -*-  Mode: C++; c-file-style: "gnu"; indent-tabs-mode:nil; -*- */
+/*
+ *
+ *
+ * Author: Fahim Masud Choudhury <fahim.cuet@gmail.com>
+ *         Hasanuzzaman Noor     <zaman.cuet@gmail.com>
+ *         Md. Monowar Hossain   <>
+ */
+
 #include "ns3/core-module.h"
 #include "ns3/internet-module.h"
 #include "ns3/network-module.h"
@@ -11,6 +20,7 @@
 #include "src/csma/helper/csma-helper.h"
 #include "ns3/olsr-helper.h"
 #include "ns3/ipv4-global-routing-helper.h"
+#include "ns3/netanim-module.h"
 
 #include <iostream>
 #include <sstream>
@@ -120,10 +130,10 @@ m_gw (2),
 m_mr (2),
 m_ap (2),
 m_sta (2),
-m_step (100.0),
+m_step (10.0),
 m_randomStart (0.1),
-m_totalTime (5.0),
-m_packetInterval (0.1),
+m_totalTime (50.0),
+m_packetInterval (1.0),
 m_packetSize (1024),
 m_nIfaces (1),
 m_chan (true),
@@ -234,43 +244,48 @@ MeshTest::CreateNodes ()
 
   // TODO: Setup Mobility for mesh nodes
 
-  // Setup WiFi network
-  WifiHelper wifi = WifiHelper::Default ();
-  wifi.SetRemoteStationManager ("ns3::AarfWifiManager");
+  // Setup WiFi for network 1
+  WifiHelper wifi1 = WifiHelper::Default ();
+  wifi1.SetRemoteStationManager ("ns3::AarfWifiManager");
 
-  NqosWifiMacHelper mac = NqosWifiMacHelper::Default ();
+  NqosWifiMacHelper mac1 = NqosWifiMacHelper::Default ();
 
   // TODO: Change SSID for different networks
   // Install on different ap1 <--> sta1, ap2 <--> sta2
 
   // STA1 and AP1 are initialized for network 1
-  Ssid ssid = Ssid ("network-1");
-  mac.SetType ("ns3::StaWifiMac",
-               "Ssid", SsidValue (ssid),
+  Ssid ssid1 = Ssid ("network-1");
+  mac1.SetType ("ns3::StaWifiMac",
+               "Ssid", SsidValue (ssid1),
                "ActiveProbing", BooleanValue (false));
 
-  de_sta1 = wifi.Install (wifiPhy, mac, nc_sta1);
+  de_sta1 = wifi1.Install (wifiPhy, mac1, nc_sta1);
 
   // Setup AP for network 1
-  mac.SetType ("ns3::ApWifiMac",
-               "Ssid", SsidValue (ssid));
+  mac1.SetType ("ns3::ApWifiMac",
+               "Ssid", SsidValue (ssid1));
 
-  de_ap1 = wifi.Install (wifiPhy, mac, nc_ap1);
+  de_ap1 = wifi1.Install (wifiPhy, mac1, nc_ap1);
 
-
+  // Setup WiFi for network 2
+  WifiHelper wifi2 = WifiHelper::Default ();
+  wifi2.SetRemoteStationManager ("ns3::AarfWifiManager");
+  
+  NqosWifiMacHelper mac2 = NqosWifiMacHelper::Default ();
+  
   // STA and APs are initialized for network 2
-  ssid = Ssid ("network-2");
-  mac.SetType ("ns3::StaWifiMac",
-               "Ssid", SsidValue (ssid),
+  Ssid ssid2 = Ssid ("network-2");
+  mac2.SetType ("ns3::StaWifiMac",
+               "Ssid", SsidValue (ssid2),
                "ActiveProbing", BooleanValue (false));
 
-  de_sta2 = wifi.Install (wifiPhy, mac, nc_sta2);
+  de_sta2 = wifi2.Install (wifiPhy, mac2, nc_sta2);
 
   // Setup AP for network 2
-  mac.SetType ("ns3::ApWifiMac",
-               "Ssid", SsidValue (ssid));
+  mac2.SetType ("ns3::ApWifiMac",
+               "Ssid", SsidValue (ssid2));
 
-  de_ap2 = wifi.Install (wifiPhy, mac, nc_ap2);
+  de_ap2 = wifi2.Install (wifiPhy, mac2, nc_ap2);
 
   // Net Device container for STA and AP in network 1
   de_wifi_sta1Ap1.Add (de_sta1);
@@ -279,7 +294,6 @@ MeshTest::CreateNodes ()
   // Net Device container for STA and AP in network 2
   de_wifi_sta2Ap2.Add (de_sta2);
   de_wifi_sta2Ap2.Add (de_ap2);
-
 
 
   // Setup mobility for WiFi nodes
@@ -302,8 +316,6 @@ MeshTest::CreateNodes ()
   mobility.Install (nc_mr2);
   mobility.Install (nc_gw2);
   
-
-
 }
 
 void
@@ -314,6 +326,7 @@ MeshTest::InstallInternetStack ()
   OlsrHelper routingProtocol;
   internetStackHelper.SetRoutingHelper (routingProtocol);  
   
+  // Setup internet stack on the nodes
   internetStackHelper.Install (nc_sta1);
   internetStackHelper.Install (nc_sta2);
   internetStackHelper.Install (nc_ap1);
@@ -324,12 +337,10 @@ MeshTest::InstallInternetStack ()
   internetStackHelper.Install (nc_gw2);
   internetStackHelper.Install (nc_bb1);
 
-
-
   // Network 1 (left)
   address.SetBase ("10.1.1.0", "255.255.255.0");
   if_wifi_sta1Ap1 = address.Assign (de_wifi_sta1Ap1);
-
+  
   address.SetBase ("10.1.2.0", "255.255.255.0");
   if_csma_ap1Mr1 = address.Assign (de_csma_ap1Mr1);
 
@@ -342,7 +353,7 @@ MeshTest::InstallInternetStack ()
   // Network 2 (right)
   address.SetBase ("20.1.1.0", "255.255.255.0");
   if_wifi_sta2Ap2 = address.Assign (de_wifi_sta2Ap2);
-
+    
   address.SetBase ("20.1.2.0", "255.255.255.0");
   if_csma_ap2Mr2 = address.Assign (de_csma_ap2Mr2);
 
@@ -359,16 +370,16 @@ MeshTest::InstallApplication ()
 {
   // Server is set on STA2 in network 2 (right)
   UdpEchoServerHelper echoServer (9);
-  ApplicationContainer serverApps = echoServer.Install (nc_mr1.Get (0));
+  ApplicationContainer serverApps = echoServer.Install (nc_sta2.Get (0));
   serverApps.Start (Seconds (0.0));
   serverApps.Stop (Seconds (m_totalTime));
 
   // Client is set on STA1 in network 1 (left)
-  UdpEchoClientHelper echoClient (if_csma_ap1Mr1.GetAddress (1), 9);
+  UdpEchoClientHelper echoClient (if_wifi_sta2Ap2.GetAddress (0), 9);
   echoClient.SetAttribute ("MaxPackets", UintegerValue ((uint32_t) (m_totalTime * (1 / m_packetInterval))));
   echoClient.SetAttribute ("Interval", TimeValue (Seconds (m_packetInterval)));
   echoClient.SetAttribute ("PacketSize", UintegerValue (m_packetSize));
-  ApplicationContainer clientApps = echoClient.Install (nc_ap1.Get (0));
+  ApplicationContainer clientApps = echoClient.Install (nc_sta1.Get (0));
   clientApps.Start (Seconds (0.0));
   clientApps.Stop (Seconds (m_totalTime));
   
@@ -383,6 +394,10 @@ MeshTest::Run ()
   InstallInternetStack ();
   InstallApplication ();
   Simulator::Stop (Seconds (m_totalTime));
+  // Enable graphical interface for netanim
+  AnimationInterface animation ("infrastructure-mesh.xml");
+  animation.EnablePacketMetadata (false);
+  
   Simulator::Run ();
   Simulator::Destroy ();
 
