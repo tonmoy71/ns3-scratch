@@ -71,7 +71,7 @@ private:
 
   /// NodeContainer for individual nodes
   NodeContainer nc_sta1, nc_sta2;
-  NodeContainer nc_ap1, nc_ap2;
+  NodeContainer nc_ap1, nc_ap2, nc_ap3;
   NodeContainer nc_mr1, nc_mr2;
   NodeContainer nc_gw1, nc_gw2;
   NodeContainer nc_bb1;
@@ -80,19 +80,20 @@ private:
   NodeContainer nc_sta, nc_ap;
 
   // NodeContainer for connected nodes
-  NodeContainer nc_sta1Ap1, nc_sta2Ap2;
-  NodeContainer nc_ap1Mr1, nc_ap2Mr2;
+  NodeContainer nc_sta1Ap1, nc_sta2Ap2, nc_sta1Ap3;
+  NodeContainer nc_ap1Mr1, nc_ap2Mr2, nc_ap3Mr1;
   NodeContainer nc_mr1Gw1, nc_mr2Gw2;
   NodeContainer nc_gw1Bb1, nc_gw2Bb1;
 
 
   // List of categorical NetDevice Container
   NetDeviceContainer de_sta1, de_sta2;
-  NetDeviceContainer de_ap1, de_ap2;
+  NetDeviceContainer de_ap1, de_ap2, de_ap3;
 
   // List of WiFi NetDevice Container
   NetDeviceContainer de_wifi_sta1Ap1;
   NetDeviceContainer de_wifi_sta2Ap2;
+  NetDeviceContainer de_wifi_sta1Ap3;
 
   // List of mesh NetDevice Container
   NetDeviceContainer de_mesh_mr1Gw1;
@@ -101,6 +102,7 @@ private:
   // List of CSMA NetDevice Container
   NetDeviceContainer de_csma_ap1Mr1;
   NetDeviceContainer de_csma_ap2Mr2;
+  NetDeviceContainer de_csma_ap3Mr1;
 
   // List of p2p NetDevice Container
   NetDeviceContainer de_p2p_gw1Bb1;
@@ -109,12 +111,14 @@ private:
   // List of interface container
   Ipv4InterfaceContainer if_wifi_sta1Ap1;
   Ipv4InterfaceContainer if_wifi_sta2Ap2;
+  Ipv4InterfaceContainer if_wifi_sta1Ap3;
 
   Ipv4InterfaceContainer if_mesh_mr1Gw1;
   Ipv4InterfaceContainer if_mesh_mr2Gw2;
 
   Ipv4InterfaceContainer if_csma_ap1Mr1;
   Ipv4InterfaceContainer if_csma_ap2Mr2;
+  Ipv4InterfaceContainer if_csma_ap3Mr1;
 
   Ipv4InterfaceContainer if_p2p_gw1Bb1;
   Ipv4InterfaceContainer if_p2p_gw2Bb1;
@@ -143,7 +147,7 @@ m_backbone (1),
 //m_mesh (6),
 m_gw (2),
 m_mr (2),
-m_ap (2),
+m_ap (3),
 m_sta (2),
 m_step (10.0),
 m_randomStart (0.1),
@@ -188,6 +192,7 @@ MeshTest::CreateNodes ()
   nc_sta2.Create (1);
   nc_ap1.Create (1);
   nc_ap2.Create (1);
+  nc_ap3.Create (1);
   nc_mr1.Create (1);
   nc_mr2.Create (1);
   nc_gw1.Create (1);
@@ -196,13 +201,15 @@ MeshTest::CreateNodes ()
 
   // Create categorical Node Container
   nc_sta = NodeContainer (nc_sta1, nc_sta2);
-  nc_ap = NodeContainer (nc_ap1, nc_ap2);
+  nc_ap = NodeContainer (nc_ap1, nc_ap2, nc_ap3);
 
   // Create connected nodes in their node container
   nc_sta1Ap1 = NodeContainer (nc_sta1, nc_ap1);
   nc_sta2Ap2 = NodeContainer (nc_sta2, nc_ap2);
+  nc_sta1Ap3 = NodeContainer (nc_sta1, nc_ap3);
   nc_ap1Mr1 = NodeContainer (nc_ap1, nc_mr1);
   nc_ap2Mr2 = NodeContainer (nc_ap2, nc_mr2);
+  nc_ap3Mr1 = NodeContainer (nc_ap3, nc_mr1);
   nc_mr1Gw1 = NodeContainer (nc_mr1, nc_gw1);
   nc_mr2Gw2 = NodeContainer (nc_mr2, nc_gw2);
   nc_gw1Bb1 = NodeContainer (nc_gw1, nc_bb1);
@@ -220,6 +227,7 @@ MeshTest::CreateNodes ()
   csmaHelper.SetChannelAttribute ("Delay", TimeValue (NanoSeconds (6560)));
   de_csma_ap1Mr1 = csmaHelper.Install (nc_ap1Mr1);
   de_csma_ap2Mr2 = csmaHelper.Install (nc_ap2Mr2);
+  de_csma_ap3Mr1 = csmaHelper.Install (nc_ap3Mr1);
 
   // Configure YansWifiChannel
   YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
@@ -265,9 +273,6 @@ MeshTest::CreateNodes ()
 
   NqosWifiMacHelper mac1 = NqosWifiMacHelper::Default ();
 
-  // TODO: Change SSID for different networks
-  // Install on different ap1 <--> sta1, ap2 <--> sta2
-
   // STA1 and AP1 are initialized for network 1
   Ssid ssid1 = Ssid ("network-1");
   mac1.SetType ("ns3::StaWifiMac",
@@ -281,6 +286,7 @@ MeshTest::CreateNodes ()
                 "Ssid", SsidValue (ssid1));
 
   de_ap1 = wifi1.Install (wifiPhy, mac1, nc_ap1);
+  //de_ap3 = wifi1.Install (wifiPhy, mac1, nc_ap3);
 
   // Setup WiFi for network 2
   WifiHelper wifi2 = WifiHelper::Default ();
@@ -302,9 +308,31 @@ MeshTest::CreateNodes ()
 
   de_ap2 = wifi2.Install (wifiPhy, mac2, nc_ap2);
 
-  // Net Device container for STA and AP in network 1
+  // Setup WiFi for network 3
+  WifiHelper wifi3 = WifiHelper::Default ();
+  wifi3.SetRemoteStationManager ("ns3::AarfWifiManager");
+
+  NqosWifiMacHelper mac3 = NqosWifiMacHelper::Default ();
+
+  // Setup STA for network 3
+  Ssid ssid3 = Ssid ("network-3");
+  mac3.SetType ("ns3::StaWifiMac",
+                "Ssid", SsidValue (ssid3),
+                "ActiveProbing", BooleanValue (true));
+
+  mac3.SetType ("ns3::ApWifiMac",
+                "Ssid", SsidValue (ssid3));
+
+  de_ap3 = wifi3.Install (wifiPhy, mac3, nc_ap3);
+
+
+  // Net Device container for STA and AP1 in network 1
   de_wifi_sta1Ap1.Add (de_sta1);
   de_wifi_sta1Ap1.Add (de_ap1);
+
+  // Net Device container for STA and AP3 in network 3
+  de_wifi_sta1Ap3.Add (de_sta1);
+  de_wifi_sta1Ap3.Add (de_ap3);
 
   // Net Device container for STA and AP in network 2
   de_wifi_sta2Ap2.Add (de_sta2);
@@ -336,27 +364,23 @@ MeshTest::SetupMobility ()
   fixedMobility.Install (nc_mr2);
   fixedMobility.Install (nc_gw2);
 
+  fixedMobility.Install (nc_ap3);
+  SetPosition (nc_ap3.Get (0), 10.0, -5.0);
+
   // Setup mobility for the STA1 node
   MobilityHelper mobility;
 
   double startTime = 20.0;
 
-  for (int sta1_x = 0, sta1_y = 0, sta2_y = 10; sta1_y <= 16; sta1_x++, sta1_y++)
+  for (int sta1_x = 0, sta1_y = 0; sta1_y >= -5; sta1_x++, sta1_y--)
     {
       // Change position of STA1 after startTime
       Simulator::Schedule (Seconds (startTime), &SetPosition, nc_sta1.Get (0), sta1_x, sta1_y);
       // Change position of STA2 after startTime
-      Simulator::Schedule (Seconds (startTime), &SetPosition, nc_sta2.Get (0), 0.0, sta2_y);
-      sta2_y--;
+      //Simulator::Schedule (Seconds (startTime), &SetPosition, nc_sta2.Get (0), 0.0, sta2_y);
+      //sta2_y--;
       startTime++;
     }
-
-  // Position STA1 node from AP1 network to AP2 network
-  //Simulator::Schedule (Seconds (20.0), &SetPosition, nc_sta1.Get (0), 10.0, 15.0);
-  // Position STA2 node from AP2 network to AP2 network
-  //Simulator::Schedule (Seconds (20.0), &SetPosition, nc_sta2.Get (0), 0.0, 0.0);
-
-
 }
 
 void
@@ -372,6 +396,7 @@ MeshTest::InstallInternetStack ()
   internetStackHelper.Install (nc_sta2);
   internetStackHelper.Install (nc_ap1);
   internetStackHelper.Install (nc_ap2);
+  internetStackHelper.Install (nc_ap3);
   internetStackHelper.Install (nc_mr1);
   internetStackHelper.Install (nc_mr2);
   internetStackHelper.Install (nc_gw1);
@@ -390,6 +415,12 @@ MeshTest::InstallInternetStack ()
 
   address.SetBase ("10.1.4.0", "255.255.255.0");
   if_p2p_gw1Bb1 = address.Assign (de_p2p_gw1Bb1);
+
+  address.SetBase ("10.1.5.0", "255.255.255.0");
+  if_wifi_sta1Ap3 = address.Assign (de_wifi_sta1Ap3);
+  
+  address.SetBase ("10.1.6.0", "255.255.255.0");
+  if_csma_ap3Mr1 = address.Assign (de_csma_ap3Mr1);
 
   // Network 2 (right)
   address.SetBase ("20.1.1.0", "255.255.255.0");
@@ -439,7 +470,7 @@ MeshTest::Run ()
   // Enable graphical interface for netanim
   AnimationInterface animation ("infrastructure-mesh.xml");
   animation.EnablePacketMetadata (false);
-  
+
   Simulator::Run ();
   Simulator::Destroy ();
 
@@ -449,6 +480,7 @@ MeshTest::Run ()
 int
 main (int argc, char *argv[])
 {
+  ns3::PacketMetadata::Enable ();
   LogComponentEnable ("UdpEchoClientApplication", LOG_LEVEL_INFO);
   LogComponentEnable ("UdpEchoServerApplication", LOG_LEVEL_INFO);
   MeshTest t;
