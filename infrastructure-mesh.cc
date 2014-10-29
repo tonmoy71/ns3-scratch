@@ -22,6 +22,7 @@
 #include "ns3/ipv4-global-routing-helper.h"
 #include "ns3/netanim-module.h"
 #include "src/network/model/packet-metadata.h"
+#include "mesh-tcp.h"
 
 #include <iostream>
 #include <sstream>
@@ -80,8 +81,8 @@ private:
   NodeContainer nc_sta, nc_ap;
 
   // NodeContainer for connected nodes
-  NodeContainer nc_sta1Ap1, nc_sta2Ap2, nc_sta1Ap3;
-  NodeContainer nc_ap1Mr1, nc_ap2Mr2, nc_ap3Mr1;
+  NodeContainer nc_sta1Ap1, nc_sta2Ap2, nc_sta1Ap1Ap3;
+  NodeContainer nc_ap1Mr1, nc_ap2Mr2, nc_ap1Ap3Mr1;
   NodeContainer nc_mr1Gw1, nc_mr2Gw2;
   NodeContainer nc_gw1Bb1, nc_gw2Bb1;
 
@@ -91,34 +92,30 @@ private:
   NetDeviceContainer de_ap1, de_ap2, de_ap3;
 
   // List of WiFi NetDevice Container
-  NetDeviceContainer de_wifi_sta1Ap1;
+  NetDeviceContainer de_wifi_sta1Ap1Ap3;
   NetDeviceContainer de_wifi_sta2Ap2;
-  NetDeviceContainer de_wifi_sta1Ap3;
 
   // List of mesh NetDevice Container
   NetDeviceContainer de_mesh_mr1Gw1;
   NetDeviceContainer de_mesh_mr2Gw2;
 
   // List of CSMA NetDevice Container
-  NetDeviceContainer de_csma_ap1Mr1;
+  NetDeviceContainer de_csma_ap1Ap3Mr1;
   NetDeviceContainer de_csma_ap2Mr2;
-  NetDeviceContainer de_csma_ap3Mr1;
 
   // List of p2p NetDevice Container
   NetDeviceContainer de_p2p_gw1Bb1;
   NetDeviceContainer de_p2p_gw2Bb1;
 
   // List of interface container
-  Ipv4InterfaceContainer if_wifi_sta1Ap1;
+  Ipv4InterfaceContainer if_wifi_sta1Ap1Ap3;
   Ipv4InterfaceContainer if_wifi_sta2Ap2;
-  Ipv4InterfaceContainer if_wifi_sta1Ap3;
 
   Ipv4InterfaceContainer if_mesh_mr1Gw1;
   Ipv4InterfaceContainer if_mesh_mr2Gw2;
 
-  Ipv4InterfaceContainer if_csma_ap1Mr1;
+  Ipv4InterfaceContainer if_csma_ap1Ap3Mr1;
   Ipv4InterfaceContainer if_csma_ap2Mr2;
-  Ipv4InterfaceContainer if_csma_ap3Mr1;
 
   Ipv4InterfaceContainer if_p2p_gw1Bb1;
   Ipv4InterfaceContainer if_p2p_gw2Bb1;
@@ -137,19 +134,18 @@ private:
   /// Setup mobility
   void SetupMobility ();
   /// Install applications
-  void InstallApplication ();
+  void InstallUdpApplication ();
   /// Print mesh devices diagnostics
   void Report ();
 };
 
 MeshTest::MeshTest () :
 m_backbone (1),
-//m_mesh (6),
 m_gw (2),
 m_mr (2),
 m_ap (3),
 m_sta (2),
-m_step (10.0),
+m_step (30.0),
 m_randomStart (0.1),
 m_totalTime (50.0),
 m_packetInterval (1.0),
@@ -180,8 +176,6 @@ MeshTest::Configure (int argc, char *argv[])
   cmd.AddValue ("root", "Mac address of root mesh point in HWMP", m_root);
 
   cmd.Parse (argc, argv);
-  //NS_LOG_DEBUG("Grid:" << m_xSize << "*" << m_ySize);
-  //NS_LOG_DEBUG("Simulation time: " << m_totalTime << " s");
 }
 
 void
@@ -204,14 +198,15 @@ MeshTest::CreateNodes ()
   nc_ap = NodeContainer (nc_ap1, nc_ap2, nc_ap3);
 
   // Create connected nodes in their node container
-  nc_sta1Ap1 = NodeContainer (nc_sta1, nc_ap1);
+  nc_sta1Ap1Ap3 = NodeContainer (nc_sta1, nc_ap1, nc_ap3);
   nc_sta2Ap2 = NodeContainer (nc_sta2, nc_ap2);
-  nc_sta1Ap3 = NodeContainer (nc_sta1, nc_ap3);
-  nc_ap1Mr1 = NodeContainer (nc_ap1, nc_mr1);
+
+  nc_ap1Ap3Mr1 = NodeContainer (nc_ap1, nc_ap3, nc_mr1);
   nc_ap2Mr2 = NodeContainer (nc_ap2, nc_mr2);
-  nc_ap3Mr1 = NodeContainer (nc_ap3, nc_mr1);
+
   nc_mr1Gw1 = NodeContainer (nc_mr1, nc_gw1);
   nc_mr2Gw2 = NodeContainer (nc_mr2, nc_gw2);
+
   nc_gw1Bb1 = NodeContainer (nc_gw1, nc_bb1);
   nc_gw2Bb1 = NodeContainer (nc_gw2, nc_bb1);
 
@@ -225,14 +220,16 @@ MeshTest::CreateNodes ()
   // Create CSMA connection between MRs (mr1, mr2) and APs (ap1, ap2)
   csmaHelper.SetChannelAttribute ("DataRate", StringValue ("100Mbps"));
   csmaHelper.SetChannelAttribute ("Delay", TimeValue (NanoSeconds (6560)));
-  de_csma_ap1Mr1 = csmaHelper.Install (nc_ap1Mr1);
+  de_csma_ap1Ap3Mr1 = csmaHelper.Install (nc_ap1Ap3Mr1);
   de_csma_ap2Mr2 = csmaHelper.Install (nc_ap2Mr2);
-  de_csma_ap3Mr1 = csmaHelper.Install (nc_ap3Mr1);
+
 
   // Configure YansWifiChannel
   YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
   YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
   wifiPhy.SetChannel (wifiChannel.Create ());
+
+  // ---------------------- Setup Mesh Network-----------------------------------
 
   /*
    * Create mesh helper and set stack installer to it
@@ -265,36 +262,36 @@ MeshTest::CreateNodes ()
   de_mesh_mr1Gw1 = meshHelper.Install (wifiPhy, nc_mr1Gw1);
   de_mesh_mr2Gw2 = meshHelper.Install (wifiPhy, nc_mr2Gw2);
 
-  // TODO: Setup Mobility for mesh nodes
-
-  // Setup WiFi for network 1
+  
+  // -------------------------Setup WiFi for network 1--------------------------------
   WifiHelper wifi1 = WifiHelper::Default ();
   wifi1.SetRemoteStationManager ("ns3::AarfWifiManager");
 
   NqosWifiMacHelper mac1 = NqosWifiMacHelper::Default ();
 
-  // STA1 and AP1 are initialized for network 1
-  Ssid ssid1 = Ssid ("network-1");
+  // STA1 and AP1, AP3 are initialized for network 1
+  Ssid ssid1 = Ssid ("WiFi Network 1");
   mac1.SetType ("ns3::StaWifiMac",
                 "Ssid", SsidValue (ssid1),
                 "ActiveProbing", BooleanValue (true));
 
   de_sta1 = wifi1.Install (wifiPhy, mac1, nc_sta1);
 
-  // Setup AP for network 1
+  // Setup AP1 and AP3 for network 1
   mac1.SetType ("ns3::ApWifiMac",
                 "Ssid", SsidValue (ssid1));
 
   de_ap1 = wifi1.Install (wifiPhy, mac1, nc_ap1);
-  //de_ap3 = wifi1.Install (wifiPhy, mac1, nc_ap3);
+  de_ap3 = wifi1.Install (wifiPhy, mac1, nc_ap3);
 
-  // Setup WiFi for network 2
+
+  // ---------------------------Setup WiFi for network 2-------------------------------
   WifiHelper wifi2 = WifiHelper::Default ();
   wifi2.SetRemoteStationManager ("ns3::AarfWifiManager");
 
   NqosWifiMacHelper mac2 = NqosWifiMacHelper::Default ();
 
-  // STA and APs are initialized for network 2
+  // STA2 and AP2 are initialized for network 2
   Ssid ssid2 = Ssid ("network-2");
   mac2.SetType ("ns3::StaWifiMac",
                 "Ssid", SsidValue (ssid2),
@@ -302,7 +299,7 @@ MeshTest::CreateNodes ()
 
   de_sta2 = wifi2.Install (wifiPhy, mac2, nc_sta2);
 
-  // Setup AP for network 2
+  // Setup AP2 for network 2
   mac2.SetType ("ns3::ApWifiMac",
                 "Ssid", SsidValue (ssid2));
 
@@ -314,36 +311,20 @@ MeshTest::CreateNodes ()
 
   NqosWifiMacHelper mac3 = NqosWifiMacHelper::Default ();
 
-  // Setup STA for network 3
-  Ssid ssid3 = Ssid ("network-3");
-  mac3.SetType ("ns3::StaWifiMac",
-                "Ssid", SsidValue (ssid3),
-                "ActiveProbing", BooleanValue (true));
+  // Net Device container for STA1 and AP1, AP3 in WiFi network 1
+  de_wifi_sta1Ap1Ap3.Add (de_sta1);
+  de_wifi_sta1Ap1Ap3.Add (de_ap1);
+  de_wifi_sta1Ap1Ap3.Add (de_ap3);
 
-  mac3.SetType ("ns3::ApWifiMac",
-                "Ssid", SsidValue (ssid3));
-
-  de_ap3 = wifi3.Install (wifiPhy, mac3, nc_ap3);
-
-
-  // Net Device container for STA and AP1 in network 1
-  de_wifi_sta1Ap1.Add (de_sta1);
-  de_wifi_sta1Ap1.Add (de_ap1);
-
-  // Net Device container for STA and AP3 in network 3
-  de_wifi_sta1Ap3.Add (de_sta1);
-  de_wifi_sta1Ap3.Add (de_ap3);
-
-  // Net Device container for STA and AP in network 2
+  // Net Device container for STA2 and AP2 in WiFi network 2
   de_wifi_sta2Ap2.Add (de_sta2);
   de_wifi_sta2Ap2.Add (de_ap2);
-
 }
 
 void
 MeshTest::SetupMobility ()
 {
-  // Setup mobility for the nodes
+  // -------------------------------Setup mobility for the nodes---------------------
   MobilityHelper fixedMobility;
   fixedMobility.SetPositionAllocator ("ns3::GridPositionAllocator",
                                       "MinX", DoubleValue (0.0),
@@ -353,7 +334,8 @@ MeshTest::SetupMobility ()
                                       "GridWidth", UintegerValue (5),
                                       "LayoutType", StringValue ("RowFirst"));
   fixedMobility.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  // Setup fixed position for the network nodes 
+
+  // ------------------------Setup fixed position for the network nodes---------------- 
   fixedMobility.Install (nc_sta1);
   fixedMobility.Install (nc_ap1);
   fixedMobility.Install (nc_mr1);
@@ -363,16 +345,16 @@ MeshTest::SetupMobility ()
   fixedMobility.Install (nc_ap2);
   fixedMobility.Install (nc_mr2);
   fixedMobility.Install (nc_gw2);
-
   fixedMobility.Install (nc_ap3);
-  SetPosition (nc_ap3.Get (0), 10.0, -5.0);
 
-  // Setup mobility for the STA1 node
-  MobilityHelper mobility;
+  // Position for AP3 and Backbone
+  SetPosition (nc_ap3.Get (0), 30.0, -100.0);
+  SetPosition (nc_bb1.Get (0), 120.0, 15.0);
 
+  // ------------------------Setup mobility for the STA1 node--------------------------
   double startTime = 20.0;
 
-  for (int sta1_x = 0, sta1_y = 0; sta1_y >= -5; sta1_x++, sta1_y--)
+  for (int sta1_x = 0, sta1_y = 0; sta1_y >= -150; sta1_x -= 1, sta1_y -= 5)
     {
       // Change position of STA1 after startTime
       Simulator::Schedule (Seconds (startTime), &SetPosition, nc_sta1.Get (0), sta1_x, sta1_y);
@@ -391,7 +373,7 @@ MeshTest::InstallInternetStack ()
   OlsrHelper routingProtocol;
   internetStackHelper.SetRoutingHelper (routingProtocol);
 
-  // Setup internet stack on the nodes
+  // ---------------------Setup internet stack on the nodes------------------------------
   internetStackHelper.Install (nc_sta1);
   internetStackHelper.Install (nc_sta2);
   internetStackHelper.Install (nc_ap1);
@@ -403,12 +385,12 @@ MeshTest::InstallInternetStack ()
   internetStackHelper.Install (nc_gw2);
   internetStackHelper.Install (nc_bb1);
 
-  // Network 1 (left)
+  // -------------------- IP address for Network 1 (left)---------------------------
   address.SetBase ("10.1.1.0", "255.255.255.0");
-  if_wifi_sta1Ap1 = address.Assign (de_wifi_sta1Ap1);
+  if_wifi_sta1Ap1Ap3 = address.Assign (de_wifi_sta1Ap1Ap3);
 
   address.SetBase ("10.1.2.0", "255.255.255.0");
-  if_csma_ap1Mr1 = address.Assign (de_csma_ap1Mr1);
+  if_csma_ap1Ap3Mr1 = address.Assign (de_csma_ap1Ap3Mr1);
 
   address.SetBase ("10.1.3.0", "255.255.255.0");
   if_mesh_mr1Gw1 = address.Assign (de_mesh_mr1Gw1);
@@ -416,13 +398,9 @@ MeshTest::InstallInternetStack ()
   address.SetBase ("10.1.4.0", "255.255.255.0");
   if_p2p_gw1Bb1 = address.Assign (de_p2p_gw1Bb1);
 
-  address.SetBase ("10.1.5.0", "255.255.255.0");
-  if_wifi_sta1Ap3 = address.Assign (de_wifi_sta1Ap3);
-  
-  address.SetBase ("10.1.6.0", "255.255.255.0");
-  if_csma_ap3Mr1 = address.Assign (de_csma_ap3Mr1);
 
-  // Network 2 (right)
+
+  // -------------------- IP address for Network 2 (right)--------------------------
   address.SetBase ("20.1.1.0", "255.255.255.0");
   if_wifi_sta2Ap2 = address.Assign (de_wifi_sta2Ap2);
 
@@ -438,15 +416,15 @@ MeshTest::InstallInternetStack ()
 }
 
 void
-MeshTest::InstallApplication ()
+MeshTest::InstallUdpApplication ()
 {
-  // Server is set on STA2 in network 2 (right)
+  // ------------------Server is set on STA2 in network 2 (right)--------------------
   UdpEchoServerHelper echoServer (9);
   ApplicationContainer serverApps = echoServer.Install (nc_sta2.Get (0));
   serverApps.Start (Seconds (0.0));
   serverApps.Stop (Seconds (m_totalTime));
 
-  // Client is set on STA1 in network 1 (left)
+  // ------------------Client is set on STA1 in network 1 (left)---------------------
   UdpEchoClientHelper echoClient (if_wifi_sta2Ap2.GetAddress (0), 9);
   echoClient.SetAttribute ("MaxPackets", UintegerValue ((uint32_t) (m_totalTime * (1 / m_packetInterval))));
   echoClient.SetAttribute ("Interval", TimeValue (Seconds (m_packetInterval)));
@@ -454,8 +432,6 @@ MeshTest::InstallApplication ()
   ApplicationContainer clientApps = echoClient.Install (nc_sta1.Get (0));
   clientApps.Start (Seconds (0.0));
   clientApps.Stop (Seconds (m_totalTime));
-
-  //Ipv4GlobalRoutingHelper::PopulateRoutingTables ();
 }
 
 int
@@ -465,8 +441,9 @@ MeshTest::Run ()
   CreateNodes ();
   InstallInternetStack ();
   SetupMobility ();
-  InstallApplication ();
+  InstallUdpApplication ();
   Simulator::Stop (Seconds (m_totalTime));
+
   // Enable graphical interface for netanim
   AnimationInterface animation ("infrastructure-mesh.xml");
   animation.EnablePacketMetadata (false);
