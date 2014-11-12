@@ -665,7 +665,7 @@ ThroughputMonitor (FlowMonitorHelper *fmhelper, Ptr<FlowMonitor> flowMon, Gnuplo
   Simulator::Schedule (Seconds (1), &ThroughputMonitor, fmhelper, flowMon, DataSet);
   //if(flowToXml)
   {
-    flowMon->SerializeToXmlFile ("ThroughputMonitor.xml", true, true);
+    flowMon->SerializeToXmlFile ("infrastructure-mesh-backbone-throughputMonitor.xml", true, true);
   }
 
 }
