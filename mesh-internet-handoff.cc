@@ -19,11 +19,8 @@
 #include "src/csma/helper/csma-helper.h"
 #include "ns3/olsr-helper.h"
 #include "ns3/ipv4-global-routing-helper.h"
-
 #include "ns3/netanim-module.h"
 #include "src/network/model/packet-metadata.h"
-//#include "mesh.h"
-
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -51,7 +48,7 @@ private:
   int m_sta1, m_sta2, m_gw1, m_gw2, m_bb1;
   int m_xSize;
   int m_ySize;
-  int m_sta;
+  int m_maxStaNum;
   double m_step;
   double m_randomStart;
   double m_totalTime;
@@ -62,7 +59,7 @@ private:
   bool m_pcap;
   std::string m_stack;
   std::string m_root;
-
+  Ptr<FlowMonitor> flowMon;
 
   /// NodeContainer for individual nodes
   NodeContainer nc_sta1, nc_sta2;
@@ -89,15 +86,11 @@ private:
   NetDeviceContainer de_mesh1;
   NetDeviceContainer de_mesh2;
 
-
-
-
   // List of p2p NetDevice Container
   NetDeviceContainer de_p2p_gw1Bb1;
   NetDeviceContainer de_p2p_gw2Bb1;
 
   // List of interface container
-
   Ipv4InterfaceContainer if_mesh1;
   Ipv4InterfaceContainer if_mesh2;
 
@@ -108,6 +101,7 @@ private:
   MeshHelper meshHelper1, meshHelper2;
   PointToPointHelper p2pHelper;
   Ipv4AddressHelper address;
+  FlowMonitorHelper fmHelper;
 
 
 private:
@@ -127,21 +121,20 @@ private:
 
 MeshTest::MeshTest () :
 
-m_sta1 (1),
-m_sta2 (1),
+// Set up node numbers on the network.
+m_sta1 (1), // Number of station nodes in the first network.
+m_sta2 (1), // Number of station nodes in the second network.
 m_gw1 (1),
 m_gw2 (1),
 m_bb1 (1),
-
 m_xSize (2),
 m_ySize (2),
-
 //m_ap (2),
-m_sta (1),
+m_maxStaNum (1), // Contains the largest number of station nodes between two networks. 
 m_step (50.0),
 m_randomStart (0.1),
-m_totalTime (25.0),
-m_packetInterval (1.0),
+m_totalTime (100.0),
+m_packetInterval (0.1),
 m_packetSize (1024),
 m_nIfaces (1),
 m_chan (true),
@@ -154,8 +147,8 @@ MeshTest::Configure (int argc, char *argv[])
 {
   CommandLine cmd;
 
-  cmd.AddValue ("sta1", "", m_sta1);
-  cmd.AddValue ("sta2", "", m_sta2);
+  cmd.AddValue ("sta1", "Number of station nodes in network 1", m_sta1);
+  cmd.AddValue ("sta2", "Number of station nodes in network 2", m_sta2);
 
   //
   cmd.AddValue ("x-size", "Number of nodes in a row grid. [6]", m_xSize);
@@ -184,43 +177,41 @@ void
 MeshTest::CreateNodes ()
 {
 
+  // Station nodes
   nc_sta1.Create (m_sta1);
   nc_sta2.Create (m_sta2);
+  // Mesh Backbone nodes
   nc_mbb1.Create (m_ySize * m_xSize);
   nc_mbb2.Create (m_ySize * m_xSize);
+  // Gateway mesh nodes
   nc_gw1.Create (m_gw1);
   nc_gw2.Create (m_gw2);
+  // Internet node
   nc_bb1.Create (m_bb1);
 
-
+  // Contains all the station nodes in network 1 and network 2
   nc_sta = NodeContainer (nc_sta1, nc_sta2);
+  // Contains station nodes and mesh backbone nodes.
   nc_sta1Mbb1 = NodeContainer (nc_sta1, nc_mbb1);
   nc_sta2Mbb2 = NodeContainer (nc_sta2, nc_mbb2);
-
-
+  // Contains gateway and internet nodes.
   nc_gw1Bb1 = NodeContainer (nc_gw1, nc_bb1);
   nc_gw2Bb1 = NodeContainer (nc_gw2, nc_bb1);
-
-
+  // Contains all mesh nodes including STA, Backbone and Gateway.
   nc_mesh1 = NodeContainer (nc_sta1, nc_mbb1, nc_gw1);
   nc_mesh2 = NodeContainer (nc_sta2, nc_mbb2, nc_gw2);
 
 
-
-
-  // Create p2p links between backbone (bb1) and gateways (gw1, gw2)
+  // Create p2p links between gateways (gw1, gw2) and Internet node
   p2pHelper.SetDeviceAttribute ("DataRate", StringValue ("100Mbps"));
   p2pHelper.SetChannelAttribute ("Delay", StringValue ("10ms"));
   de_p2p_gw1Bb1 = p2pHelper.Install (nc_gw1Bb1);
   de_p2p_gw2Bb1 = p2pHelper.Install (nc_gw2Bb1);
 
-
   // Configure YansWifiChannel
   YansWifiPhyHelper wifiPhy = YansWifiPhyHelper::Default ();
   YansWifiChannelHelper wifiChannel = YansWifiChannelHelper::Default ();
   wifiPhy.SetChannel (wifiChannel.Create ());
-
-
 
   meshHelper1 = MeshHelper::Default ();
   if (!Mac48Address (m_root.c_str ()).IsBroadcast ())
@@ -247,7 +238,6 @@ MeshTest::CreateNodes ()
   // Install protocols and return container if MeshPointDevices
   de_mesh1 = meshHelper1.Install (wifiPhy, nc_mesh1);
 
-  //----------------------mesh router2 ------------------------------------------
 
   meshHelper2 = MeshHelper::Default ();
   if (!Mac48Address (m_root.c_str ()).IsBroadcast ())
@@ -271,24 +261,15 @@ MeshTest::CreateNodes ()
   meshHelper2.SetMacType ("RandomStart", TimeValue (Seconds (m_randomStart)));
   // Set number of interfaces - default is single-interface mesh point
   meshHelper2.SetNumberOfInterfaces (m_nIfaces);
-
   de_mesh2 = meshHelper2.Install (wifiPhy, nc_mesh2);
-
-
-
 
   // Setup WiFi for network 1
   WifiHelper wifi1 = WifiHelper::Default ();
   wifi1.SetStandard (WIFI_PHY_STANDARD_80211b);
   wifi1.SetRemoteStationManager ("ns3::AarfWifiManager");
-
   NqosWifiMacHelper mac1 = NqosWifiMacHelper::Default ();
 
-
-
-
-
-  // STA1 is initialized for network 1
+  // Station nodes are initialized for network 1
   Ssid ssid1 = Ssid ("network-1");
   mac1.SetType ("ns3::StaWifiMac",
                 "Ssid", SsidValue (ssid1),
@@ -296,43 +277,38 @@ MeshTest::CreateNodes ()
 
   de_sta1 = wifi1.Install (wifiPhy, mac1, nc_sta1);
 
-
   // Setup AP for network 1
   mac1.SetType ("ns3::ApWifiMac",
                 "Ssid", SsidValue (ssid1));
 
-  //de_ap1 = wifi1.Install (wifiPhy, mac1, nc_mbb1.Get (0));
-  for (int i = 0; i < (m_xSize*m_ySize); i += m_xSize)
+  // Creates APs among the mesh nodes, selects the nodes of first column as AP, determined by the m_xSize.
+  for (int i = 0; i < (m_xSize * m_ySize); i += m_xSize)
     {
       de_ap1.Add (wifi1.Install (wifiPhy, mac1, nc_mbb1.Get (i)));
     }
-
-
 
   // Setup WiFi for network 2
   WifiHelper wifi2 = WifiHelper::Default ();
   wifi2.SetStandard (WIFI_PHY_STANDARD_80211b);
   wifi2.SetRemoteStationManager ("ns3::AarfWifiManager");
-
   NqosWifiMacHelper mac2 = NqosWifiMacHelper::Default ();
 
-  // STA is initialized for network 2
+  // Station nodes are initialized for network 2
   Ssid ssid2 = Ssid ("network-2");
   mac2.SetType ("ns3::StaWifiMac",
                 "Ssid", SsidValue (ssid2),
                 "ActiveProbing", BooleanValue (true));
-
   de_sta2 = wifi2.Install (wifiPhy, mac2, nc_sta2);
-
 
   // Setup AP for network 2
   mac2.SetType ("ns3::ApWifiMac",
                 "Ssid", SsidValue (ssid2));
 
-   for (int i = 0; i < (m_xSize*m_ySize); i += m_xSize)
+  // Creates APs among the mesh nodes, selects the nodes of first column as AP, determined by the m_xSize.  
+  for (int i = 0; i < (m_xSize * m_ySize); i += m_xSize)
     {
       de_ap2.Add (wifi1.Install (wifiPhy, mac1, nc_mbb2.Get (i)));
-     }
+    }
 
   // Net Device container for STA and AP in network 1
   de_wifi_sta1Ap1.Add (de_sta1);
@@ -347,132 +323,117 @@ MeshTest::CreateNodes ()
 void
 MeshTest::SetupMobility ()
 {
+  // Stores the larger number of station nodes in m_maxStaNum, required for alignment.
   if (m_sta1 >= m_sta2)
-    m_sta = m_sta1;
+    m_maxStaNum = m_sta1;
   else
-    m_sta = m_sta2;
+    m_maxStaNum = m_sta2;
 
   // Setup mobility for the nodes
-  MobilityHelper fixedMobility1;
-  fixedMobility1.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                       "MinX", DoubleValue ((m_sta - m_sta1) * m_step),
-                                       "MinY", DoubleValue ((m_xSize - 1)*.5 * m_step),
-                                       "DeltaX", DoubleValue (m_step),
-                                       "DeltaY", DoubleValue (m_step),
-                                       "GridWidth", UintegerValue (m_sta1),
-                                       "LayoutType", StringValue ("RowFirst"));
+  MobilityHelper mobility1;
+  mobility1.SetPositionAllocator ("ns3::GridPositionAllocator",
+                                  "MinX", DoubleValue ((m_maxStaNum - m_sta1) * m_step),
+                                  "MinY", DoubleValue ((m_xSize - 1)*.5 * m_step),
+                                  "DeltaX", DoubleValue (m_step),
+                                  "DeltaY", DoubleValue (m_step),
+                                  "GridWidth", UintegerValue (m_sta1),
+                                  "LayoutType", StringValue ("RowFirst"));
 
-  fixedMobility1.SetMobilityModel ("ns3::RandomWalk2dMobilityModel",
-                                   "Bounds", RectangleValue (Rectangle (-500, 500, -500, 500)),
-                                   "Speed", StringValue ("ns3::UniformRandomVariable[Min=20.0|Max=50.0]"),
-                                   "Direction", StringValue ("ns3::UniformRandomVariable[Min=10.0|Max=26.283184]"));
-  fixedMobility1.Install (nc_sta1);
-
-
-
-
-
+  mobility1.SetMobilityModel ("ns3::RandomWalk2dMobilityModel",
+                              "Bounds", RectangleValue (Rectangle (-500, 500, -500, 500)),
+                              "Speed", StringValue ("ns3::UniformRandomVariable[Min=20.0|Max=50.0]"),
+                              "Direction", StringValue ("ns3::UniformRandomVariable[Min=10.0|Max=26.283184]"));
+  // Creates RandomWalk2DMobility model for the station nodes.
+  mobility1.Install (nc_sta1);
 
   // Setup mobility for the nodes
-  MobilityHelper fixedMobility2;
-  fixedMobility2.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                       "MinX", DoubleValue ((m_sta) * m_step),
-                                       "MinY", DoubleValue (0.0),
-                                       "DeltaX", DoubleValue (m_step),
-                                       "DeltaY", DoubleValue (m_step),
-                                       "GridWidth", UintegerValue (m_xSize),
-                                       "LayoutType", StringValue ("RowFirst"));
+  MobilityHelper mobility2;
+  mobility2.SetPositionAllocator ("ns3::GridPositionAllocator",
+                                  "MinX", DoubleValue ((m_maxStaNum) * m_step),
+                                  "MinY", DoubleValue (0.0),
+                                  "DeltaX", DoubleValue (m_step),
+                                  "DeltaY", DoubleValue (m_step),
+                                  "GridWidth", UintegerValue (m_xSize),
+                                  "LayoutType", StringValue ("RowFirst"));
 
 
-  fixedMobility2.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  mobility2.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  // Create constant positions for mesh backbone nodes.
+  mobility2.Install (nc_mbb1);
 
-  fixedMobility2.Install (nc_mbb1);
-
-
-
-  MobilityHelper fixedMobility3;
-  fixedMobility3.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                       "MinX", DoubleValue ((m_sta + m_xSize) * m_step),
-                                       "MinY", DoubleValue ((m_xSize - 1)*.5 * m_step),
-                                       "DeltaX", DoubleValue (m_step),
-                                       "DeltaY", DoubleValue (m_step),
-                                       "GridWidth", UintegerValue (2),
-                                       "LayoutType", StringValue ("RowFirst"));
+  MobilityHelper mobility3;
+  mobility3.SetPositionAllocator ("ns3::GridPositionAllocator",
+                                  "MinX", DoubleValue ((m_maxStaNum + m_xSize) * m_step),
+                                  "MinY", DoubleValue ((m_xSize - 1)*.5 * m_step),
+                                  "DeltaX", DoubleValue (m_step),
+                                  "DeltaY", DoubleValue (m_step),
+                                  "GridWidth", UintegerValue (2),
+                                  "LayoutType", StringValue ("RowFirst"));
 
 
-  fixedMobility3.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-
-  fixedMobility3.Install (nc_gw1);
+  mobility3.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  // Create constant positions for gateway nodes.
+  mobility3.Install (nc_gw1);
 
 
   // Setup mobility for the nodes
-  MobilityHelper fixedMobility4;
-  fixedMobility4.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                       "MinX", DoubleValue ((m_sta - m_sta2) * m_step),
-                                       "MinY", DoubleValue (((m_xSize - 1)*.5 * m_step)+(m_xSize + 1) * m_step),
-                                       "DeltaX", DoubleValue (m_step),
-                                       "DeltaY", DoubleValue (m_step),
-                                       "GridWidth", UintegerValue (m_sta),
-                                       "LayoutType", StringValue ("RowFirst"));
+  MobilityHelper mobility4;
+  mobility4.SetPositionAllocator ("ns3::GridPositionAllocator",
+                                  "MinX", DoubleValue ((m_maxStaNum - m_sta2) * m_step),
+                                  "MinY", DoubleValue (((m_xSize - 1)*.5 * m_step)+(m_xSize + 1) * m_step),
+                                  "DeltaX", DoubleValue (m_step),
+                                  "DeltaY", DoubleValue (m_step),
+                                  "GridWidth", UintegerValue (m_maxStaNum),
+                                  "LayoutType", StringValue ("RowFirst"));
 
-  fixedMobility4.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-  fixedMobility4.Install (nc_sta2);
+  mobility4.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  // Creates RandomWalk2DMobility model for the station nodes.
+  mobility4.Install (nc_sta2);
 
-
-
-
-
-
-  // Setup mobility for the nodes
-  MobilityHelper fixedMobility5;
-  fixedMobility5.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                       "MinX", DoubleValue (((m_sta) * m_step)),
-                                       "MinY", DoubleValue ((m_xSize + 1) * m_step),
-                                       "DeltaX", DoubleValue (m_step),
-                                       "DeltaY", DoubleValue (m_step),
-                                       "GridWidth", UintegerValue (m_xSize),
-                                       "LayoutType", StringValue ("RowFirst"));
+  MobilityHelper mobility5;
+  mobility5.SetPositionAllocator ("ns3::GridPositionAllocator",
+                                  "MinX", DoubleValue (((m_maxStaNum) * m_step)),
+                                  "MinY", DoubleValue ((m_xSize + 1) * m_step),
+                                  "DeltaX", DoubleValue (m_step),
+                                  "DeltaY", DoubleValue (m_step),
+                                  "GridWidth", UintegerValue (m_xSize),
+                                  "LayoutType", StringValue ("RowFirst"));
 
 
-  fixedMobility5.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-
-  fixedMobility5.Install (nc_mbb2);
+  mobility5.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  // Create constant positions for mesh backbone nodes.
+  mobility5.Install (nc_mbb2);
 
   //SetPosition (nc_gw1.Get (0),(m_sta1+m_ap1+m_xSize)*m_step , ((m_xSize-1)/2)*m_step);
 
-  MobilityHelper fixedMobility6;
-  fixedMobility6.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                       "MinX", DoubleValue ((m_sta + m_xSize) * m_step),
-                                       "MinY", DoubleValue (((m_xSize - 1)*.5 * m_step)+(m_xSize + 1) * m_step),
-                                       "DeltaX", DoubleValue (m_step),
-                                       "DeltaY", DoubleValue (m_step),
-                                       "GridWidth", UintegerValue (2),
-                                       "LayoutType", StringValue ("RowFirst"));
+  MobilityHelper mobility6;
+  mobility6.SetPositionAllocator ("ns3::GridPositionAllocator",
+                                  "MinX", DoubleValue ((m_maxStaNum + m_xSize) * m_step),
+                                  "MinY", DoubleValue (((m_xSize - 1)*.5 * m_step)+(m_xSize + 1) * m_step),
+                                  "DeltaX", DoubleValue (m_step),
+                                  "DeltaY", DoubleValue (m_step),
+                                  "GridWidth", UintegerValue (2),
+                                  "LayoutType", StringValue ("RowFirst"));
 
 
-  fixedMobility6.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
-
-  fixedMobility6.Install (nc_gw2);
-
-
-  MobilityHelper fixedMobility7;
-  fixedMobility7.SetPositionAllocator ("ns3::GridPositionAllocator",
-                                       "MinX", DoubleValue ((m_sta + m_xSize + m_gw1) * m_step),
-                                       "MinY", DoubleValue ((m_xSize + m_ySize)*.5 * m_step),
-                                       "DeltaX", DoubleValue (m_step),
-                                       "DeltaY", DoubleValue (m_step),
-                                       "GridWidth", UintegerValue (2),
-                                       "LayoutType", StringValue ("RowFirst"));
+  mobility6.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  // Create constant positions for gateway nodes.
+  mobility6.Install (nc_gw2);
 
 
-  fixedMobility7.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  MobilityHelper mobility7;
+  mobility7.SetPositionAllocator ("ns3::GridPositionAllocator",
+                                  "MinX", DoubleValue ((m_maxStaNum + m_xSize + m_gw1) * m_step),
+                                  "MinY", DoubleValue ((m_xSize + m_ySize)*.5 * m_step),
+                                  "DeltaX", DoubleValue (m_step),
+                                  "DeltaY", DoubleValue (m_step),
+                                  "GridWidth", UintegerValue (2),
+                                  "LayoutType", StringValue ("RowFirst"));
 
-  fixedMobility7.Install (nc_bb1);
 
-
-
-
-
+  mobility7.SetMobilityModel ("ns3::ConstantPositionMobilityModel");
+  // Constant position for Internet node.
+  mobility7.Install (nc_bb1);
 }
 
 void
@@ -482,7 +443,6 @@ MeshTest::InstallInternetStack ()
   InternetStackHelper internetStackHelper;
   OlsrHelper routingProtocol;
   internetStackHelper.SetRoutingHelper (routingProtocol);
-
 
   // Setup internet stack on the nodes
   internetStackHelper.Install (nc_sta1);
@@ -494,8 +454,7 @@ MeshTest::InstallInternetStack ()
   internetStackHelper.Install (nc_bb1);
 
 
-  // Network 1 (left)
-
+  // Network 1
   address.SetBase ("10.1.1.0", "255.255.255.0");
   if_mesh1 = address.Assign (de_mesh1);
 
@@ -504,8 +463,7 @@ MeshTest::InstallInternetStack ()
 
 
 
-  // Network 2 (right)
-
+  // Network 2 
   address.SetBase ("20.1.1.0", "255.255.255.0");
   if_mesh2 = address.Assign (de_mesh2);
 
@@ -518,13 +476,13 @@ void
 MeshTest::InstallApplication ()
 {
 
-  // Server is set on STA2 in network 2 (right)
+  // Setup server
   UdpEchoServerHelper echoServer (9);
   ApplicationContainer serverApps = echoServer.Install (nc_sta2.Get (0));
   serverApps.Start (Seconds (0.0));
   serverApps.Stop (Seconds (m_totalTime));
 
-  // Client is set on STA1 in network 1 (left)
+  // Setup client
   UdpEchoClientHelper echoClient (if_mesh2.GetAddress (0), 9);
   echoClient.SetAttribute ("MaxPackets", UintegerValue ((uint32_t) (m_totalTime * (1 / m_packetInterval))));
   echoClient.SetAttribute ("Interval", TimeValue (Seconds (m_packetInterval)));
@@ -542,26 +500,27 @@ MeshTest::Run ()
   InstallInternetStack ();
   SetupMobility ();
   InstallApplication ();
-
   Simulator::Stop (Seconds (m_totalTime));
-  Simulator::Run ();
+  // Flow Monitor
+  InstallFlowMonitor ();
+  // Net Anim
+  AnimationInterface animation ("mesh-internet-handoff.xml");
+  animation.EnablePacketMetadata (false);
 
+  Simulator::Run ();
+  flowMon->SerializeToXmlFile ("mesh-internet-handoff-flowmon.xml", true, true);
   Simulator::Destroy ();
 
   return 0;
 
-
-
-  //InstallFlowMonitor ();
-
-
 }
 
 void
-MeshTest::InstallFlowMonitor () {
+MeshTest::InstallFlowMonitor ()
+{
 
-  //flowMon = fmHelper.Install (nodes.Get (0));
-  //flowMon = fmHelper.Install (nodes.Get (m_xSize * m_ySize - 1));
+  flowMon = fmHelper.Install (nc_sta2.Get (0));
+  flowMon = fmHelper.Install (nc_sta1.Get (0));
 }
 
 int
